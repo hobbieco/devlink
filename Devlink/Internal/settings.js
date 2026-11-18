@@ -127,11 +127,11 @@
   function envTab(env) {
     const b = document.createElement('button');
     b.className = 'env-tab' + (env.id === envID ? ' active' : '');
-    b.innerHTML = '<i></i>';
-    b.querySelector('i').style.background = env.color || 'var(--no-env)';
+    const dot = dragHandle(b, { kind: 'env', env }, document.createElement('i'));   // 색 동그라미가 드래그 핸들
+    dot.style.background = env.color || 'var(--no-env)';
     const s = document.createElement('span');
     s.textContent = env.name || tr('(no name)');
-    b.append(s);
+    b.append(dot, s);
     b.title = env.name;
     b.addEventListener('click', () => { envID = env.id; renderEnv(); });
     // 서비스를 다른 환경 탭에 끌어놓으면 그 환경 맨 끝에 복사하고 그 환경으로 넘어간다 (지금 환경 탭은 대상 아님)
@@ -141,8 +141,52 @@
       envID = env.id;
       queueMicrotask(() => flashDomain(copy));
     }, true);
+    // 환경 탭끼리: 순서 바꾸기 (왼쪽 절반 = 앞, 오른쪽 절반 = 뒤)
+    b._env = env;
+    bindDrop(b, (s) => s.kind === 'env' && s.env !== env && 'move', (s, after) => moveEnv(s.env, env, after), false, true);
     return b;
   }
+
+  function moveEnv(src, target, after) {
+    draft.envs.splice(draft.envs.indexOf(src), 1);
+    draft.envs.splice(draft.envs.indexOf(target) + (after ? 1 : 0), 0, src);
+  }
+
+  // 탭 사이 빈 틈에 놓아도 가장 가까운 탭 기준으로 받는다 (탭 위는 각 탭이 직접 처리)
+  function gapTarget(e) {
+    if (drag?.kind !== 'env' || e.target.closest('.env-tab')) return null;
+    let best = null, bestD = Infinity;
+    for (const t of $('envTabs').querySelectorAll('.env-tab:not(.add)')) {
+      if (t._env === drag.env) continue;
+      const r = t.getBoundingClientRect();
+      const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom);
+      const d = dy * 1000 + dx;   // 같은 줄을 우선
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return null;
+    const r = best.getBoundingClientRect();
+    return { tab: best, after: e.clientX > r.left + r.width / 2 };
+  }
+  $('envTabs').addEventListener('dragover', (e) => {
+    const g = gapTarget(e);
+    if (!g) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearMarks();
+    g.tab.classList.add(g.after ? 'drop-after' : 'drop-before');
+  });
+  $('envTabs').addEventListener('drop', (e) => {
+    const g = gapTarget(e);
+    if (!g) return;
+    e.preventDefault();
+    const src = drag.env;
+    drag = null;
+    delete document.body.dataset.drag;
+    clearMarks();
+    moveEnv(src, g.tab._env, g.after);
+    setDirty();
+    renderEnv();
+  });
 
   function addEnvTab() {
     const b = document.createElement('button');
@@ -421,13 +465,14 @@
     });
   }
 
-  function dragHandle(row, state) {
-    const h = span('drag-handle', '⠿');
+  function dragHandle(row, state, h = span('drag-handle', '⠿')) {
+    h.classList.add('drag-handle');
     h.draggable = true;
     h.title = tr('Drag to reorder');
     h.addEventListener('dragstart', (e) => {
       if (latest?.closed || (state.kind !== 'domain' && state.d && !live(state.d))) { e.preventDefault(); return; }
       drag = state;
+      document.body.dataset.drag = state.kind;
       e.dataTransfer.effectAllowed = 'copyMove';
       e.dataTransfer.setData('text/plain', '');
       const el = typeof row === 'function' ? row() : row;
@@ -435,7 +480,7 @@
       el.classList.add('dragging');
       h._el = el;
     });
-    h.addEventListener('dragend', () => { drag = null; h._el?.classList.remove('dragging'); clearMarks(); });
+    h.addEventListener('dragend', () => { drag = null; delete document.body.dataset.drag; h._el?.classList.remove('dragging'); clearMarks(); });
     return h;
   }
 
@@ -444,8 +489,8 @@
   }
 
   /** accept(state) → false | 'move' | 'copy'. after: 대상 줄의 아래쪽 절반에 놓았는가 (headMode 면 항상 맨 앞 삽입) */
-  function bindDrop(el, accept, onDrop, headMode = false) {
-    const isAfter = (e) => { const r = el.getBoundingClientRect(); return e.clientY > r.top + r.height / 2; };
+  function bindDrop(el, accept, onDrop, headMode = false, horizontal = false) {
+    const isAfter = (e) => { const r = el.getBoundingClientRect(); return horizontal ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2; };
     el.addEventListener('dragover', (e) => {
       const mode = drag && accept(drag);
       if (!mode) return;
@@ -460,6 +505,7 @@
       e.preventDefault();
       const s = drag, after = isAfter(e);
       drag = null;
+      delete document.body.dataset.drag;
       clearMarks();
       onDrop(s, after);
       setDirty();
@@ -619,8 +665,9 @@
   $('envDelete').addEventListener('click', () => {
     if (draft.envs.length <= 1) return;
     confirmDelete($('envDelete'), () => {
-      draft.envs.splice(draft.envs.indexOf(currentEnv()), 1);
-      envID = draft.envs[0].id;
+      const i = draft.envs.indexOf(currentEnv());
+      draft.envs.splice(i, 1);
+      envID = draft.envs[Math.min(i, draft.envs.length - 1)].id;   // 같은 자리 유지 (마지막이면 새 마지막)
       setDirty();
       renderEnv();
     });
