@@ -108,10 +108,26 @@
     renderEnv();   // closed 면 끝에서 잠근다
   }
 
+  /** 선택한 환경 탭이 가로 스크롤 밖이면 보이게 (페이지는 스크롤하지 않는다) */
+  function scrollActiveTabIntoView() {
+    const box = $('envTabs');
+    const tab = box.querySelector('.env-tab.active');
+    if (!tab) return;
+    if (tab.offsetLeft < box.scrollLeft) box.scrollLeft = tab.offsetLeft;
+    else if (tab.offsetLeft + tab.offsetWidth > box.scrollLeft + box.clientWidth) box.scrollLeft = tab.offsetLeft + tab.offsetWidth - box.clientWidth;
+  }
+
+  // 위쪽 고정 줄 높이를 환경 탭 줄의 고정 위치(top)로 쓴다
+  const stickyTop = document.querySelector('.set-sticky');
+  const syncStickyHeight = () => document.documentElement.style.setProperty('--set-sticky-h', stickyTop.offsetHeight + 'px');
+  new ResizeObserver(syncStickyHeight).observe(stickyTop);
+  syncStickyHeight();
+
   function renderEnv() {
     const env = currentEnv();
     envID = env.id;
     $('envTabs').replaceChildren(...draft.envs.map(envTab), addEnvTab());
+    scrollActiveTabIntoView();
     $('fEnvName').value = env.name;
     $('envColor').querySelector('i').style.background = env.color;
     $('swatches').hidden = true;

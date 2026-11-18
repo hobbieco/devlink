@@ -382,6 +382,12 @@ button.ghost.add { border-style: dashed; color: var(--text-dim); align-self: fle
 #projectExport { width: 131px; height: 36px; padding-left: 0; padding-right: 0; margin-right: 28px; }   /* Collapse all · Delete env 와 같은 크기, 간격 44 (gap 16 + 28) */
 .env-tabs-row { display: flex; align-items: flex-start; gap: 12px; }
 .env-tabs-row .env-tabs { flex: 1; margin: 0 0 12px; }
+/* 설정 화면 환경 탭: 위쪽 줄(.set-sticky) 바로 아래에 2단으로 고정. 한 줄 + 가로 스크롤이라 높이가 늘지 않는다.
+   위쪽 줄 아래 여백이 간격을 대신하므로 위쪽 여백은 0 */
+.env-tabs-row { position: sticky; top: var(--set-sticky-h, 125px); z-index: 4; background: var(--bg); }
+.env-tabs-row .env-tabs { position: relative; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.env-tabs-row .env-tabs::-webkit-scrollbar { display: none; }
+.env-tabs-row .env-tab { flex: none; }
 .warn { color: #e0b050; white-space: nowrap; align-self: center; }
 .missing-domain { display: grid; place-items: center; color: #e0b050; border-style: dashed; min-height: 80px; }
 /* URI·계정 행 끝: × 와 ↑↓ (간격) */
