@@ -161,8 +161,9 @@ final class InternalPageSession: NSObject, WKScriptMessageHandler, WKNavigationD
     }
 
     /// 화면의 devlink.<name>() 호출 (저장 결과 알림 등)
-    func call(_ name: String) {
-        webView.evaluateJavaScript("window.devlink && devlink.\(name)()", completionHandler: nil)
+    func call(_ name: String, _ args: [Any] = []) {
+        let json = (try? JSONSerialization.data(withJSONObject: args)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        webView.evaluateJavaScript("window.devlink && devlink.\(name)(...\(json))", completionHandler: nil)
     }
 
     /// 화면에 현재 프로젝트 목록·정렬을 보낸다.
@@ -195,7 +196,14 @@ final class InternalPageSession: NSObject, WKScriptMessageHandler, WKNavigationD
                      "domains": e.domains.map { d -> [String: Any] in
                          ["id": d.id.uuidString, "alias": d.alias, "origin": p.origin(d) ?? "",
                           "ssl": d.ssl, "useBase": d.useBase, "sub": d.sub, "showInSidebar": d.showInSidebar,
-                          "accounts": d.accounts.map { ["id": $0.login, "name": $0.name, "enabled": $0.enabled] },
+                          "accounts": d.accounts.map { a -> [String: Any] in
+                              var out: [String: Any] = ["id": a.login, "name": a.name, "enabled": a.enabled]
+                              if p.id == settingsID, PasswordStore.shared.isLocked(domain: d.id, account: a.login) {
+                                  out["locked"] = true   // 값은 보내지 않고 저장돼 있는지만
+                                  out["hasPw"] = PasswordStore.shared.has(domain: d.id, account: a.login)
+                              }
+                              return out
+                          },
                           "passwords": p.id == settingsID ? PasswordStore.shared.passwords(domain: d.id, accounts: d.accounts.map(\.login)) : [:],
                           "uris": d.uris.map { u -> [String: Any] in
                               ["id": u.id.uuidString, "alias": u.alias, "path": u.path, "showInSidebar": u.showInSidebar,
@@ -208,7 +216,8 @@ final class InternalPageSession: NSObject, WKScriptMessageHandler, WKNavigationD
         let state: [String: Any] = ["projects": projects, "search": search(),
                                     // 설정 화면 색 견본 (이 순서가 새 환경 기본 색 순서)
                                     "palettes": EnvPalette.allCases.map { ["key": $0.rawValue, "hex": $0.hex] },
-                                    "envLayout": UserDefaults.standard.string(forKey: "envLayout") ?? "tabs"]
+                                    "envLayout": UserDefaults.standard.string(forKey: "envLayout") ?? "tabs",
+                                    "authAvailable": Authenticator.available]
         guard let data = try? JSONSerialization.data(withJSONObject: state),
               let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.devlink && devlink.render(\(json))", completionHandler: nil)

@@ -11,6 +11,7 @@ final class AccountPicker {
         let id: String
         let name: String
         let hasPassword: Bool
+        let locked: Bool
     }
 
     /// cssRect: 입력 칸의 화면(viewport) 좌표 (CSS px)
@@ -72,7 +73,8 @@ private struct AccountRow: View {
                 .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
                 // 비밀번호가 저장된 계정
-                if item.hasPassword { Image(systemName: "key.fill").foregroundStyle(.secondary) }
+                if item.locked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
+                else if item.hasPassword { Image(systemName: "key.fill").foregroundStyle(.secondary) }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -81,6 +83,6 @@ private struct AccountRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(item.hasPassword ? String(localized: "Fill ID and password") : String(localized: "Fill ID only (no saved password)"))
+        .help(item.locked ? String(localized: "Locked: authenticate to fill") : item.hasPassword ? String(localized: "Fill ID and password") : String(localized: "Fill ID only (no saved password)"))
     }
 }

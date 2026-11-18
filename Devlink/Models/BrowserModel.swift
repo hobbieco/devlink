@@ -476,10 +476,15 @@ extension WindowState {
         let accounts = domain.accounts.filter { !$0.login.isEmpty && $0.enabled }
         guard !accounts.isEmpty else { return }
         let items = accounts.map {
-            AccountPicker.Item(id: $0.login, name: $0.name, hasPassword: PasswordStore.shared.has(domain: domain.id, account: $0.login))
+            AccountPicker.Item(id: $0.login, name: $0.name, hasPassword: PasswordStore.shared.has(domain: domain.id, account: $0.login),
+                               locked: PasswordStore.shared.isLocked(domain: domain.id, account: $0.login))
         }
         AccountPicker.shared.show(items, cssRect: rect, in: session.webView) { [weak session] id in
-            session?.fillLogin(id: id, password: PasswordStore.shared.password(domain: domain.id, account: id))
+            let fill = { session?.fillLogin(id: id, password: PasswordStore.shared.password(domain: domain.id, account: id)) }
+            // 잠근 계정은 인증해야 채운다 (취소하면 아무것도 채우지 않는다)
+            if PasswordStore.shared.isLocked(domain: domain.id, account: id) {
+                Authenticator.authenticate(reason: String(localized: "Fill a saved login")) { if $0 { fill() } }
+            } else { fill() }
         }
     }
 
@@ -552,17 +557,32 @@ extension WindowState {
         case "saveProject":
             // 설정 화면 저장. 실패하면 화면에 알린다 (화면이 먼저 검사하므로 보통은 성공).
             var passwords: [String: String] = [:]
+            var locks: [String: Bool] = [:]
             guard let pid = uuid("projectID"), let base = project(pid), !base.closed,   // closed 는 수정 불가
                   let data = body["project"] as? [String: Any],
-                  let edited = Project(edited: data, base: base, passwords: &passwords),
+                  let edited = Project(edited: data, base: base, passwords: &passwords, locks: &locks),
                   !ProjectLibrary.shared.projects.contains(where: { $0.id != pid && $0.name.lowercased() == edited.name.lowercased() }) else {
                 tab.internalSession?.call("saveFailed")
                 return
             }
             // 비밀번호 먼저 (프로젝트 저장이 없어진 계정의 비밀번호를 정리하고 화면에 알린다)
             PasswordStore.shared.apply(passwords)
+            PasswordStore.shared.applyLocks(locks)
             ProjectLibrary.shared.update(edited)
             tab.internalSession?.call("saved")
+        case "revealPassword":
+            // 잠근 계정의 평문 보기·잠금 해제: 인증 후 저장된 값을 화면에 돌려준다 (실패하면 null)
+            guard let account = body["account"] as? String, let token = body["token"] as? String else { return }
+            let did = uuid("domainID")   // 아직 저장하지 않은 도메인은 없다 (값은 빈 문자열)
+            Authenticator.authenticate(reason: String(localized: "Show a saved password")) { [weak tab] ok in
+                let value = did.flatMap { PasswordStore.shared.password(domain: $0, account: account) } ?? ""
+                tab?.internalSession?.call("revealed", [token, ok ? value : NSNull()])
+            }
+        case "setLock":
+            // 잠금은 저장 버튼과 관계없이 바로 적용 (푸는 것은 화면이 인증한 뒤에 요청한다)
+            if let did = uuid("domainID"), let account = body["account"] as? String, let on = body["locked"] as? Bool {
+                PasswordStore.shared.applyLocks([PasswordStore.itemKey(domain: did, account: account): on])
+            }
         case "dirty":
             tab.settingsDirty = body["dirty"] as? Bool ?? false
         case "exportProject":

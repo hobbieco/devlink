@@ -250,6 +250,12 @@ extension Project {
     /// 원본(base)에 설정 화면 값을 덮어쓴다.
     /// passwords: 계정 행의 비밀번호를 PasswordStore.itemKey → 값으로 돌려준다 (빈 값 = 지움).
     init?(edited d: [String: Any], base: Project, passwords: inout [String: String]) {
+        var locks: [String: Bool] = [:]
+        self.init(edited: d, base: base, passwords: &passwords, locks: &locks)
+    }
+
+    /// locks: 계정 행의 잠금을 PasswordStore.itemKey → 잠금 여부로 돌려준다. 잠근 채 건드리지 않은 비밀번호(pw 가 null)는 passwords 에 넣지 않는다.
+    init?(edited d: [String: Any], base: Project, passwords: inout [String: String], locks: inout [String: Bool]) {
         func str(_ o: [String: Any], _ k: String) -> String {
             (o[k] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -279,7 +285,9 @@ extension Project {
                     let account = str(a, "id")
                     guard !account.isEmpty else { continue }
                     accounts.append(Account(login: account, name: str(a, "name"), enabled: a["enabled"] as? Bool ?? true))
-                    passwords[PasswordStore.itemKey(domain: domainID, account: account)] = a["pw"] as? String ?? ""
+                    let key = PasswordStore.itemKey(domain: domainID, account: account)
+                    if a["pw"] is NSNull { /* 잠근 채 그대로 */ } else { passwords[key] = a["pw"] as? String ?? "" }
+                    locks[key] = a["locked"] as? Bool ?? false
                 }
                 return EnvDomain(id: domainID, alias: str(dm, "alias"), ssl: dm["ssl"] as? Bool ?? true,
                           useBase: dm["useBase"] as? Bool ?? true, sub: str(dm, "sub").lowercased(),

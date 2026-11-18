@@ -9,7 +9,7 @@ enum ProjectTransfer {
         guard !candidates.isEmpty else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "Export projects")
-        alert.informativeText = String(localized: "Choose the projects to export.")
+        alert.informativeText = String(localized: "Choose the projects to export. Locked accounts are not exported.")
         let handler = CheckHandler()
         let boxes = candidates.map { p -> NSButton in
             let box = NSButton(checkboxWithTitle: p.name, target: handler, action: #selector(CheckHandler.changed))
@@ -74,12 +74,24 @@ enum ProjectTransfer {
         }
         for file in files {
             do {
-                try ProjectJSON.encode([file.project]).write(to: dir.appendingPathComponent(file.name), options: .atomic)
+                try ProjectJSON.encode([withoutLocked(file.project)]).write(to: dir.appendingPathComponent(file.name), options: .atomic)
             } catch {
                 notify(String(localized: "Couldn't export"), error.localizedDescription)
                 return
             }
         }
+    }
+
+    /// 잠근 계정은 내보내지 않는다 (아이디·이름도 밖으로 나가지 않는다)
+    private static func withoutLocked(_ project: Project) -> Project {
+        var p = project
+        for e in p.envs.indices {
+            for d in p.envs[e].domains.indices {
+                let id = p.envs[e].domains[d].id
+                p.envs[e].domains[d].accounts.removeAll { PasswordStore.shared.isLocked(domain: id, account: $0.login) }
+            }
+        }
+        return p
     }
 
     /// 파일 이름에 못 쓰는 문자는 - 로 바꾼다

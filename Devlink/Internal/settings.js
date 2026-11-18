@@ -12,6 +12,7 @@
   let draft = null;      // 편집 중인 사본
   let envID = new URLSearchParams(location.search).get('env');   // 선택한 환경 (프로젝트 화면에서 넘어온 값, 없으면 첫 환경)
   let dirty = false;
+  let authAvailable = true;   // 인증을 쓸 수 없으면 잠금을 새로 걸 수 없다
   let leaveAfterSave = false;
   let copySource = null; // 복사 원본 { d: 서비스, kind: 'uri'|'acc', item: URI 또는 계정 하나 }
   // 접힌 URI·계정 표 (보기 편의, 저장 안 함 — 화면을 열 때마다 모두 펼침)
@@ -20,6 +21,22 @@
   function post(type, data = {}) {
     try { window.webkit.messageHandlers.lh.postMessage(Object.assign({ type }, data)); } catch (e) {}
   }
+
+  // 잠근 계정의 저장된 값 요청: Swift 가 인증한 뒤 돌려준다 (done(값) · 취소·실패는 done(null))
+  const pendingReveal = new Map();
+  let revealSeq = 0;
+  function reveal(d, a, done) {
+    const token = String(++revealSeq);
+    pendingReveal.set(token, done);
+    post('revealPassword', { domainID: d.id, account: a.id, token });
+  }
+  /** 저장된 계정인가 (저장된 도메인에 같은 아이디가 있음) */
+  function isSaved(d, a) {
+    return !!latest && latest.envs.some((e) => e.domains.some((x) => x.id === d.id && x.accounts.some((y) => y.id === a.id)));
+  }
+  const DOTS = '•'.repeat(100);   // 잠근 계정의 빈 칸 표시: 칸 끝까지 채워 자릿수를 숨긴다
+  const LOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+  const UNLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>';
 
   // ── 사본 만들기 ──
   function makeDraft(p) {
@@ -32,7 +49,9 @@
         domains: e.domains.map((d) => ({
           id: d.id, alias: d.alias, ssl: d.ssl, useBase: d.useBase, sub: d.sub, showInSidebar: d.showInSidebar,
           // 계정: 아이디 + 비밀번호 (비밀번호도 [저장] 할 때 함께 저장)
-          accounts: d.accounts.map((a) => ({ name: a.name, id: a.id, pw: (d.passwords || {})[a.id] || '', enabled: a.enabled !== false })),
+          // 잠근 계정은 값을 받지 않는다 (pw: null = 건드리지 않음, hasPw = 저장돼 있음)
+          accounts: d.accounts.map((a) => ({ name: a.name, id: a.id, pw: a.locked ? null : (d.passwords || {})[a.id] || '',
+                                             locked: !!a.locked, hasPw: !!a.hasPw, enabled: a.enabled !== false })),
           uris: d.uris.map((u) => ({ ...cloneUri(u), id: u.id })),   // 기존 URI 는 id 유지
         })),
       })),
@@ -49,7 +68,8 @@
    *  full 이면 서브 도메인과 계정(비밀번호·사용 체크 포함)까지 그대로 가져온다 (환경 추가, 다른 환경 탭으로 끌어놓기). */
   function cloneDomain(d, full = false) {
     return { id: null, alias: d.alias, ssl: d.ssl, useBase: d.useBase, sub: full ? d.sub : '', showInSidebar: d.showInSidebar,
-             accounts: full ? d.accounts.map((a) => ({ name: a.name, id: a.id, pw: a.pw, enabled: a.enabled !== false })) : [],
+             // 값을 가져올 수 없는 잠근 계정(pw: null)은 따라가지 않는다
+             accounts: full ? d.accounts.filter((a) => a.pw !== null).map((a) => ({ name: a.name, id: a.id, pw: a.pw, locked: !!a.locked, enabled: a.enabled !== false })) : [],
              uris: d.uris.map(cloneUri) };
   }
 
@@ -392,27 +412,72 @@
     const name = input(a.name, (v) => { a.name = v; });
     name.classList.add('w-accname');
     name.placeholder = tr('Name');
+    const locked = !!a.locked;
     const id = input(a.id, (v) => { a.id = v; });
     id.classList.add('w-acc');
     id.placeholder = tr('ID');
-    const pw = input(a.pw, (v) => { a.pw = v; });
+    id.disabled = locked;   // 잠근 계정은 아이디를 바꿀 수 없다 (풀고 바꾼다)
+    // 잠금 여부와 관계없이 저장된 값은 화면에 두지 않는다: 점으로 칸을 꽉 채워 보이고(자릿수를 숨김),
+    // 새로 입력하면 입력한 자릿수만 점으로 보이며(수정했다는 표시) 저장하면 입력한 값이 비밀번호가 된다. 모두 지우면 원래대로.
+    const edited = () => 'pwOrig' in a && a.pw !== a.pwOrig;
+    const pw = input(edited() ? a.pw : '', (v) => {
+      if (!('pwOrig' in a)) a.pwOrig = a.pw;   // 처음 입력할 때의 값을 기억 (잠근 계정은 null)
+      a.pw = v === '' ? a.pwOrig : v;
+      placeholder();
+    });
     pw.classList.add('w-pw', 'masked');
-    pw.placeholder = tr('Password');
+    const placeholder = () => { pw.placeholder = a.hasPw || a.pw ? DOTS : tr('Password'); };
+    placeholder();
     pw.autocomplete = 'off';
+    const lock = document.createElement('button');
+    lock.className = 'x-btn lock' + (locked ? ' on' : '');
+    lock.innerHTML = locked ? LOCK_SVG : UNLOCK_SVG;
+    lock.title = locked ? tr('Locked: authenticate to unlock') : tr('Lock: authenticate to show or fill the password');
+    lock.disabled = !locked && !authAvailable;
+    // 잠금은 저장 버튼과 관계없이 바로 적용한다. 아직 저장하지 않은 계정·도메인은 [저장] 때 함께 적용된다.
+    const setLock = (on) => {
+      a.locked = on;
+      if (isSaved(d, a)) post('setLock', { domainID: d.id, account: a.id, locked: on });
+      else setDirty();
+      renderEnv();
+    };
+    lock.addEventListener('click', () => {
+      if (!locked) { setLock(true); return; }   // 잠그기는 바로, 풀기는 인증 뒤에
+      reveal(d, a, (v) => {
+        if (v === null) return;
+        if (a.pw === null) a.pw = v;
+        setLock(false);
+      });
+    });
     const eye = document.createElement('button');
     eye.className = 'x-btn eye';
-    eye.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const eyeSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+    eye.innerHTML = eyeSvg + '<span class="eye-on">' + eyeSvg + '</span>';
     eye.title = tr('Show password');
-    eye.addEventListener('click', () => {
-      const shown = pw.classList.toggle('masked') === false;
-      eye.classList.toggle('on', shown);
+    // 평문은 10초만 보이고 다시 가린다 (버튼 배경이 시계처럼 회색으로 돌아간다)
+    const setShown = (shown) => {
+      pw.classList.toggle('masked', !shown);
+      if (!shown) pw.value = edited() ? a.pw : '';   // 다시 가릴 때 저장된 값은 화면에서 비운다 (입력한 값은 그대로)
+      placeholder();
+      eye.classList.remove('on');
+      if (shown) { void eye.offsetWidth; eye.classList.add('on'); }   // 애니메이션 처음부터
       eye.title = shown ? tr('Hide password') : tr('Show password');
+    };
+    eye.addEventListener('click', () => {
+      if (!pw.classList.contains('masked')) { setShown(false); return; }
+      if (!locked) { pw.value = a.pw ?? ''; setShown(true); return; }
+      reveal(d, a, (v) => {   // 잠근 계정: 인증 뒤에 보인다
+        if (v === null) return;
+        pw.value = a.pw !== null ? a.pw : v;
+        setShown(true);
+      });
     });
+    eye.addEventListener('animationend', () => setShown(false));
     const tail = div('row-tail');
     const copyAcc = smallBtn('→', (e) => openCopy(d, 'acc', a, e.currentTarget.closest('.acc-row')), 'add');
     copyAcc.title = tr('Copy to other service');
-    copyAcc.disabled = !a.id.trim();   // 아이디가 비면 복사할 수 없다
-    id.addEventListener('input', () => { copyAcc.disabled = !a.id.trim(); });
+    copyAcc.disabled = !a.id.trim() || locked;   // 아이디가 비거나 잠근 계정은 복사할 수 없다
+    id.addEventListener('input', () => { copyAcc.disabled = !a.id.trim() || locked; });
     tail.append(copyAcc, xBtn(() => { d.accounts.splice(k, 1); setDirty(); renderEnv(); }));
     // 체크 = 자동 채우기에 사용, 해제 = 제외 (목록에는 남고 입력란은 흐리게)
     const use = document.createElement('input');
@@ -422,7 +487,7 @@
     use.title = tr('Active');
     row.classList.toggle('off', !use.checked);
     use.addEventListener('change', () => { a.enabled = use.checked; row.classList.toggle('off', !use.checked); setDirty(); renderEnv(); });
-    row.append(dragHandle(row, { kind: 'acc', d, a }), use, name, id, pw, eye, tail);
+    row.append(dragHandle(row, { kind: 'acc', d, a }), use, name, id, pw, lock, eye, tail);
     bindDrop(row, (s) => s.kind === 'acc' && s.d === d && live(d) && 'move', (s, after) => {
       const i = d.accounts.indexOf(s.a);
       d.accounts.splice(i, 1);
@@ -845,9 +910,15 @@
       latest = p;
       otherNames = new Set(state.projects.filter((x) => x.id !== projectID).map((x) => x.name.trim().toLowerCase()));
       palettes = state.palettes || palettes;
+      authAvailable = state.authAvailable !== false;
       if (dirty) { renderEnv(); return; }   // 편집 중에는 덮어쓰지 않는다
       draft = makeDraft(p);
       render();
+    },
+    revealed(token, value) {
+      const done = pendingReveal.get(token);
+      pendingReveal.delete(token);
+      if (done) done(value);
     },
     saved() {
       setDirty(false);
