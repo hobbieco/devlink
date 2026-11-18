@@ -266,6 +266,21 @@ input[type=radio], input[type=checkbox] { width: 18px; height: 18px; accent-colo
 .env-tabs:not([hidden]) + #envBody { margin-top: 12px; }
 .pj-domain { margin: 4px 0 0; color: var(--text-dim); }
 .pj-domain[hidden], .pj-desc[hidden] { display: none; }
+/* 프로젝트 화면 머리: [이름·대표 도메인 520px] [설명 …] ····· [보기·설정]. 모두 아래 줄(대표 도메인)에 맞춘다 */
+.pj-sticky { position: sticky; top: 0; z-index: 5; margin: -20px -28px 0; padding: 20px 28px 12px; background: var(--bg); }
+.set-sticky { position: sticky; top: 0; z-index: 5; margin: -20px -28px 0; padding: 20px 28px 28px; background: var(--bg); }   /* 페이지 위 여백까지 덮는다 */
+.pj-sticky:has(.env-tabs[hidden]) { padding-bottom: 24px; }   /* 목록형은 탭이 없다 */
+.pj-sticky .env-tabs { margin-bottom: 0; }
+.pj-sticky + #envBody, .env-tabs:not([hidden]) + #envBody { margin-top: 0; }
+.pj-top { align-items: flex-end; }
+.pj-top .view-toggle { margin-left: auto; }
+.pj-title { flex: 0 1 520px; min-width: 0; }
+.pj-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pj-title-row h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-top .pj-domain { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-top .pj-desc { flex: 1 1 0; min-width: 0; margin: 0; min-height: 2lh; display: flex; flex-direction: column; justify-content: flex-end; }   /* 1줄이어도 2줄 높이, 글은 아래(대표 도메인 줄)에 맞춘다 */
+.pj-top .pj-desc[hidden] { display: none; }
+.pj-top .pj-desc > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 도메인(서비스)별 표: 제목(alias · 주소) 위 */
 .domain-block + .domain-block { margin-top: 18px; }
 .domain-block h3 { margin: 0 0 8px; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -273,13 +288,14 @@ input[type=radio], input[type=checkbox] { width: 18px; height: 18px; accent-colo
 .env-section h2 { margin-bottom: 12px; }
 
 /* ── 설정 화면 ── */
-.settings { overflow-x: hidden; line-height: 22px; }   /* 1.4배 줄 높이(22.4px)의 소수점 때문에 아래쪽 입력란 글자가 잘림 → 정수 px */
+.settings { overflow-x: clip; line-height: 22px; }   /* hidden 은 스크롤 영역이 되어 안의 sticky 가 풀린다 */   /* 1.4배 줄 높이(22.4px)의 소수점 때문에 아래쪽 입력란 글자가 잘림 → 정수 px */
 .save-btn { height: 38px; min-width: 131px; border-radius: 8px; cursor: pointer; }
 .save-btn:disabled { opacity: .4; cursor: default; }
 .dirty-mark { color: #e0b050; }
 .dirty-mark[hidden], .form-error[hidden] { display: none; }
 .form-error { margin: 8px 0 0; color: #ff7b72; }
 .set-section { margin-top: 28px; }
+.settings > .set-section:first-of-type { margin-top: 0; }   /* 맨 위 General 은 고정 영역 아래 여백이 대신한다 */
 .set-section > h2 { margin: 0 0 12px; font-size: 18px; line-height: 26px; }
 .settings input[type=text], .settings textarea {
   height: 36px; padding: 0 10px; min-width: 0;

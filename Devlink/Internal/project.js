@@ -46,9 +46,17 @@
     envID = env?.id;
     document.title = project.name;
     $('pjName').textContent = project.name;
+    $('pjName').title = project.name;   // 길어서 …으로 줄었을 때 전체 이름
     $('pjClosed').hidden = !project.closed;   // closed: 열기·복사 버튼은 꺼진다 (설정·환경·보기만)
-    $('pjDesc').textContent = project.description || '';
-    $('pjDesc').hidden = !project.description;
+    // 설명: 입력한 줄바꿈 그대로, 줄마다 한 줄로 보이고 공간이 모자라면 …
+    const desc = project.description || '';
+    $('pjDesc').replaceChildren(...desc.split('\n').map((line) => {
+      const row = document.createElement('div');
+      row.textContent = line || '\u00a0';
+      return row;
+    }));
+    $('pjDesc').title = desc;
+    $('pjDesc').hidden = !desc;
 
     const tabs = layout === 'tabs';
     $('viewTabs').classList.toggle('active', tabs);

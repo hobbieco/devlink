@@ -17,7 +17,9 @@
   let copySource = null; // 복사 원본 { d: 서비스, kind: 'uri'|'acc', item: URI 또는 계정 하나 }
   // 접힌 URI·계정 표 (보기 편의, 저장 안 함 — 화면을 열 때마다 모두 펼침)
   let armed = null;   // 삭제 확인 중인 버튼 (하나만): { btn, label, at, timer }
-  const folded = new WeakSet();   // 접힌 서비스: URI·계정 영역을 숨긴다 (화면에서만 유지)
+  // 접힌 서비스: URI·계정 영역을 숨긴다 (화면에서만 유지). 저장해서 사본이 새로 만들어져도 이어지도록 id 로 기억한다 (저장 전 새 서비스는 객체).
+  const foldedKeys = new Set();
+  const folded = { has: (d) => foldedKeys.has(d.id || d), add: (d) => foldedKeys.add(d.id || d), delete: (d) => foldedKeys.delete(d.id || d) };
   function post(type, data = {}) {
     try { window.webkit.messageHandlers.lh.postMessage(Object.assign({ type }, data)); } catch (e) {}
   }

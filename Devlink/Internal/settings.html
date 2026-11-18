@@ -9,6 +9,8 @@
 <body>
   <div class="pj settings">
     <!-- 경로: Projects(목록) › 프로젝트 이름(프로젝트 화면). 저장 안 한 변경이 있으면 확인 -->
+    <!-- 경로·제목(Unsaved·Export·Save)·오류 메시지는 스크롤해도 위에 고정 -->
+    <div class="set-sticky">
     <div class="crumbs">
       <button id="backList" class="back" title="Project list" data-i18n-title data-i18n>Projects</button>
       <span class="dim">›</span>
@@ -22,6 +24,7 @@
       <button id="save" class="primary save-btn" disabled data-i18n>Save</button>
     </div>
     <p id="error" class="form-error" hidden></p>
+    </div>
     <p id="closedNote" class="closed-note" hidden data-i18n>Closed projects can't be edited (delete only)</p>
 
     <!-- 기본 -->
