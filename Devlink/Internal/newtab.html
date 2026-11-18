@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <title>New Tab</title>
+  <link rel="stylesheet" href="devlink://internal.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Projects</h1>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Search projects" data-i18n-placeholder autocomplete="off" spellcheck="false" autofocus>
+      <button id="searchClear" type="button" class="search-clear" aria-label="Clear" hidden>✕</button>
+    </div>
+  </header>
+
+  <!-- 고정 영역: Default 가 항상 첫 칸 -->
+  <section class="area" id="pinnedArea">
+    <main id="pinnedGrid" class="grid" data-area="pinned"></main>
+  </section>
+  <hr class="area-divider">
+  <!-- 일반 영역: + 카드가 항상 첫 칸 -->
+  <section class="area" id="mainArea">
+    <main id="grid" class="grid" data-area="others"></main>
+  </section>
+  <hr class="area-divider">
+  <!-- closed 영역: − 카드가 항상 첫 칸 -->
+  <section class="area" id="closedArea">
+    <main id="closedGrid" class="grid" data-area="closed"></main>
+  </section>
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- 프로젝트 추가 팝업 -->
+  <div id="addModal" class="modal-backdrop" hidden>
+    <form id="addForm" class="modal" autocomplete="off">
+      <h2 data-i18n>Add Project</h2>
+      <label class="field">
+        <span data-i18n>Project Name</span>
+        <input id="addName" type="text" placeholder="New Project" data-i18n-placeholder spellcheck="false">
+      </label>
+
+      <label class="radio"><input type="radio" name="mode" value="empty" checked> <span data-i18n>Empty Project</span></label>
+      <div class="dup-row">
+        <label class="radio"><input type="radio" name="mode" value="duplicate"> <span data-i18n>Duplicate Project</span></label>
+        <select id="addSource" disabled></select>
+      </div>
+
+      <fieldset id="dupOptions" class="options" disabled>
+        <label class="opt"><input type="checkbox" id="optDomains" checked> <span data-i18n>Domain</span><em id="sumDomain"></em></label>
+        <label class="opt"><input type="checkbox" id="optURIs" checked> <span>URI</span><em id="sumURIs"></em></label>
+        <label class="opt"><input type="checkbox" id="optAccounts"> <span data-i18n>Account</span><em id="sumAccounts"></em></label>
+      </fieldset>
+
+      <div class="modal-actions">
+        <button type="button" id="addCancel" class="ghost" data-i18n>Cancel</button>
+        <button type="submit" class="primary" data-i18n>Create</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="devlink://newtab.js"></script>
+</body>
+</html>

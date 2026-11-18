@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <title>Settings</title>
+  <link rel="stylesheet" href="devlink://internal.css">
+</head>
+<body>
+  <div class="pj settings">
+    <!-- 경로: Projects(목록) › 프로젝트 이름(프로젝트 화면). 저장 안 한 변경이 있으면 확인 -->
+    <div class="crumbs">
+      <button id="backList" class="back" title="Project list" data-i18n-title data-i18n>Projects</button>
+      <span class="dim">›</span>
+      <button id="back" class="back"></button>
+    </div>
+    <div class="pj-head">
+      <h1 data-i18n>Settings</h1>
+      <span id="dirtyMark" class="dirty-mark" hidden data-i18n>Unsaved</span>
+      <span class="spacer"></span>
+      <button id="projectExport" class="ghost" data-i18n>Export project</button>
+      <button id="save" class="primary save-btn" disabled data-i18n>Save</button>
+    </div>
+    <p id="error" class="form-error" hidden></p>
+    <p id="closedNote" class="closed-note" hidden data-i18n>Closed projects can't be edited (delete only)</p>
+
+    <!-- 기본 -->
+    <section class="set-section">
+      <h2 data-i18n>General</h2>
+      <div class="form-grid">
+        <label data-i18n>Name</label><input id="fName" type="text" spellcheck="false">
+        <label data-i18n>Base domain</label><input id="fBase" type="text" spellcheck="false">
+        <label data-i18n>Description</label><textarea id="fDesc" rows="2" class="desc-input"></textarea>
+        <label data-i18n>Color</label>
+        <div class="color-row">
+          <span id="fColorBox" class="color-box none"><input id="fColor" type="color" alpha value="#8e8e93"></span>
+          <span class="dim" data-i18n>Shown as a bar under the project's tabs</span>
+        </div>
+        <span></span>
+        <div class="checks stack">
+          <label class="check"><input id="fVisit" type="checkbox"> <span data-i18n>Warn when visiting another env</span></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 환경: 탭 + 선택한 환경의 이름·도메인 -->
+    <section class="set-section">
+      <h2 data-i18n>Environments</h2>
+      <div class="env-tabs-row">
+        <nav id="envTabs" class="env-tabs"></nav>
+      </div>
+      <div class="env-head">
+        <label data-i18n>Env name</label>
+        <input id="fEnvName" type="text" spellcheck="false">
+        <!-- 환경 색: 견본에서 고름 -->
+        <div class="color-pick">
+          <button id="envColor" class="ghost color-btn" title="Env color" data-i18n-title><i></i></button>
+          <div id="swatches" class="swatches" hidden></div>
+        </div>
+        <span class="spacer"></span>
+        <!-- 지금 환경의 URI·계정 표 전체 접기/펼치기 (상태 따라 이름 바뀜) -->
+        <button id="foldAll" class="ghost fold-all"></button>
+        <button id="envDelete" class="ghost danger" data-i18n>Delete env</button>
+      </div>
+      <div id="domains"></div>
+      <button id="domainAdd" class="ghost add-btn" data-i18n>+ Domain</button>
+    </section>
+
+    <!-- 삭제 (Default 는 없음). 확인은 앱이 묻는다 -->
+    <section id="dangerZone" class="set-section danger-zone">
+      <button id="projectDelete" class="ghost danger" data-i18n>Delete project</button>
+      <span id="deleteNote" class="dim danger-note" data-i18n>This can't be undone</span>
+      <span id="deleteHint" class="dim danger-note" hidden data-i18n>To delete, move this project to Closed first</span>
+    </section>
+  </div>
+
+  <!-- 저장 안 하고 나가기 확인 -->
+  <div id="leaveModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h2 data-i18n>Unsaved changes</h2>
+      <p class="modal-text" data-i18n>Save your changes?</p>
+      <div class="modal-actions">
+        <button id="leaveCancel" class="ghost" data-i18n>Cancel</button>
+        <button id="leaveDiscard" class="ghost" data-i18n>Don't Save</button>
+        <button id="leaveSave" class="primary" data-i18n>Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 환경 추가: 이름 + 복제할 환경·도메인 (도메인 구성·서브·URI·계정(비밀번호 포함) 복사) -->
+  <div id="envModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h2 data-i18n>Add Environment</h2>
+      <label class="field"><span data-i18n>Env name</span><input id="newEnvName" type="text" spellcheck="false"></label>
+      <label class="field"><span data-i18n>Clone from</span><select id="newEnvSource"></select></label>
+      <div id="newEnvDomains" class="options"></div>
+            <p id="newEnvError" class="form-error" hidden></p>
+      <div class="modal-actions">
+        <button id="newEnvCancel" class="ghost" data-i18n>Cancel</button>
+        <button id="newEnvAdd" class="primary" data-i18n>Add</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="domainModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h2 data-i18n>Add Domain</h2>
+      <p class="modal-text" data-i18n>Clone from</p>
+      <div id="domainSources" class="copy-targets"></div>
+      <div class="modal-actions">
+        <button id="domainCancel" class="ghost" data-i18n>Cancel</button>
+        <button id="domainAddRun" class="primary" data-i18n>Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 복사: URI·계정 줄의 → 버튼으로 하나를 다른 도메인으로 (같은 path / 같은 아이디는 건너뜀) -->
+  <div id="copyModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h2 id="copyTitle">Copy URI</h2>
+      <p id="copyFrom" class="modal-text"></p>
+      <!-- 붙여넣을 도메인 (여러 개, 환경별로 묶음) -->
+      <div id="copyTargets" class="copy-targets"></div>
+      <label class="check copy-option"><input id="copyOverwrite" type="checkbox"> <span id="copyOverwriteLabel">Overwrite parameters of the same path</span></label>
+      <div class="modal-actions">
+        <button id="copyCancel" class="ghost" data-i18n>Cancel</button>
+        <button id="copyRun" class="primary" data-i18n>Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="devlink://settings.js"></script>
+</body>
+</html>

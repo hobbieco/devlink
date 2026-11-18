@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  빌드 설정의 INFOPLIST_KEY_* 로 넣을 수 없는 항목. 생성되는 Info.plist에 합쳐진다.
+  탭 드래그 전용 타입을 선언한다 (웹 페이지·텍스트 드롭과 구분).
+-->
+<plist version="1.0">
+<dict>
+	<!-- 개발용 브라우저: http 개발 서버·내부 IP 접속 허용 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>devlink needs local network access to open development servers on your network.</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>kr.pe.hobbieco.devlink.tab</string>
+			<key>UTTypeDescription</key>
+			<string>devlink Tab</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
