@@ -898,10 +898,28 @@ extension WebSession: WKNavigationDelegate {
         }
         let defaultPort = space.protocol == "https" ? 443 : 80
         let key = (space.port == 0 || space.port == defaultPort ? space.host : "\(space.host):\(space.port)").lowercased()
-        let choices = onAuthChoices?(key) ?? []
-        guard let (id, pw) = await promptCredential(host: space.host, failed: challenge.previousFailureCount > 0, choices: choices)
-        else { return (.cancelAuthenticationChallenge, nil) }
-        // 세션 동안 기억: 같은 서버의 CSS·JS 요청에 다시 묻지 않는다. 탭을 닫으면 사라진다 (디스크에 저장하지 않음).
+        // 같은 서버(영역)의 동시 요청(CSS·JS 등)은 인증 창 하나로 합친다. 같은 저장소를 쓰는 공유 탭끼리도 한 번만 묻는다.
+        let state = store.authState
+        let scope = "\(key)|\(space.realm ?? "")"
+        let failed = challenge.previousFailureCount > 0
+        let result: (String, String)?
+        if failed { state.credentials[scope] = nil }   // 틀린 값은 버리고 다시 묻는다
+        if let saved = state.credentials[scope], !failed {
+            result = saved
+        } else if let until = state.cancelledUntil[scope], until > Date(), !failed {
+            result = nil   // 방금 취소했다: 이어지는 요청에 다시 묻지 않는다
+        } else if let pending = state.pending[scope] {
+            result = await pending.value
+        } else {
+            let choices = onAuthChoices?(key) ?? []
+            let task = Task { await promptCredential(host: space.host, failed: failed, choices: choices) }
+            state.pending[scope] = task
+            result = await task.value
+            state.pending[scope] = nil
+            if let result { state.credentials[scope] = result } else { state.cancelledUntil[scope] = Date().addingTimeInterval(3) }
+        }
+        guard let (id, pw) = result else { return (.cancelAuthenticationChallenge, nil) }
+        // 세션 동안 기억: 같은 서버의 이후 요청에 다시 묻지 않는다. 탭 저장소와 함께 사라진다 (디스크에 저장하지 않음).
         return (.useCredential, URLCredential(user: id, password: pw, persistence: .forSession))
     }
 
@@ -1090,5 +1108,25 @@ private final class FieldToggler: NSObject {
         let manual = popup.indexOfSelectedItem == popup.numberOfItems - 1
         fields.forEach { $0.isEnabled = manual }
         if manual { fields.first?.window?.makeFirstResponder(fields.first) }
+    }
+}
+
+
+/// 탭 저장소 하나당 인증 상태: 입력받은 값(영역별)·진행 중인 인증 창·최근 취소. 저장소와 함께 사라진다.
+@MainActor
+final class AuthState {
+    var credentials: [String: (String, String)] = [:]
+    var pending: [String: Task<(String, String)?, Never>] = [:]
+    var cancelledUntil: [String: Date] = [:]
+}
+
+private nonisolated(unsafe) var authStateKey: UInt8 = 0
+
+extension WKWebsiteDataStore {
+    @MainActor var authState: AuthState {
+        if let s = objc_getAssociatedObject(self, &authStateKey) as? AuthState { return s }
+        let s = AuthState()
+        objc_setAssociatedObject(self, &authStateKey, s, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return s
     }
 }
