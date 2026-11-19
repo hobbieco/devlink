@@ -50,10 +50,11 @@
         id: e.id, name: e.rawName, color: e.color, palette: e.palette,
         domains: e.domains.map((d) => ({
           id: d.id, alias: d.alias, ssl: d.ssl, useBase: d.useBase, sub: d.sub, showInSidebar: d.showInSidebar,
+          swaggerAuth: !!d.swaggerAuth, tokenPrefix: d.tokenPrefix ?? 'Bearer', tokenKey: d.tokenKey || '', tokenPath: d.tokenPath || '',
           // 계정: 아이디 + 비밀번호 (비밀번호도 [저장] 할 때 함께 저장)
           // 잠근 계정은 값을 받지 않는다 (pw: null = 건드리지 않음, hasPw = 저장돼 있음)
           accounts: d.accounts.map((a) => ({ name: a.name, id: a.id, pw: a.locked ? null : (d.passwords || {})[a.id] || '',
-                                             locked: !!a.locked, hasPw: !!a.hasPw, enabled: a.enabled !== false })),
+                                             locked: !!a.locked, hasPw: !!a.hasPw, enabled: a.enabled !== false, http: !!a.http })),
           uris: d.uris.map((u) => ({ ...cloneUri(u), id: u.id })),   // 기존 URI 는 id 유지
         })),
       })),
@@ -70,8 +71,9 @@
    *  full 이면 서브 도메인과 계정(비밀번호·사용 체크 포함)까지 그대로 가져온다 (환경 추가, 다른 환경 탭으로 끌어놓기). */
   function cloneDomain(d, full = false) {
     return { id: null, alias: d.alias, ssl: d.ssl, useBase: d.useBase, sub: full ? d.sub : '', showInSidebar: d.showInSidebar,
+             swaggerAuth: !!d.swaggerAuth, tokenPrefix: d.tokenPrefix ?? 'Bearer', tokenKey: d.tokenKey || '', tokenPath: d.tokenPath || '',
              // 값을 가져올 수 없는 잠근 계정(pw: null)은 따라가지 않는다
-             accounts: full ? d.accounts.filter((a) => a.pw !== null).map((a) => ({ name: a.name, id: a.id, pw: a.pw, locked: !!a.locked, enabled: a.enabled !== false })) : [],
+             accounts: full ? d.accounts.filter((a) => a.pw !== null).map((a) => ({ name: a.name, id: a.id, pw: a.pw, locked: !!a.locked, enabled: a.enabled !== false, http: !!a.http })) : [],
              uris: d.uris.map(cloneUri) };
   }
 
@@ -300,6 +302,7 @@
     ut.append(...d.uris.map((u) => uriRow(d, u)));
     const at = div('dc-table');
     at.append(...d.accounts.map((_, k) => accRow(d, k)));
+    if (d.swaggerAuth) card.append(authRow(d));   // 접으면 함께 접힌다
     card.append(uriHead(env, d), ut, accHead(d), at);
     return card;
   }
@@ -315,16 +318,38 @@
     const sub = input(d.sub, (v) => { d.sub = v; sync(); });
     sub.classList.add('w-sub');
     sync();
-    row.append(dragHandle(() => box.closest('.domain-card') || box, { kind: 'domain', env, d }), alias, sub, preview,
+    row.append(dragHandle(() => box.closest('.domain-card') || box, { kind: 'domain', env, d }), alias, sub, preview, summaryBox(d),
       smallBtn(tr('Delete'), (e) => confirmDelete(e.currentTarget, () => { env.domains.splice(env.domains.indexOf(d), 1); setDirty(); renderEnv(); }), 'danger keep'));
     const checks = div('dc-row dc-checks has-handle');
     checks.append(
       check('SSL', d.ssl, (v) => { d.ssl = v; sync(); }),
       check(tr('Use base domain'), d.useBase, (v) => { d.useBase = v; sync(); }),
       check(tr('Active'), d.showInSidebar, (v) => { d.showInSidebar = v; renderEnv(); }, 'keep'),   // 해제하면 사이드바·프로젝트 화면에서 빠지고 편집 금지
-      spacer(), summaryBox(d), foldBtn(d));
+      check('Swagger Authorize', d.swaggerAuth, (v) => { d.swaggerAuth = v; renderEnv(); }),   // 켜면 아래에 토큰 줄이 열린다 (값은 꺼도 남는다)
+      spacer(), foldBtn(d));
     box.append(row, checks);
     return freeze(box, d);
+  }
+
+  /** Swagger Authorize 줄 (체크했을 때만, 접으면 함께 접힌다): 이 서비스 페이지(스웨거 등)의 요청에
+   *  `Authorization: <Prefix> <토큰>` 을 덧붙인다. 토큰은 쿠키(Key)에서 읽고, Path 가 있으면 값(JWT·JSON)의 안쪽 값을 쓴다.
+   *  "Bearer Token" · "Token Cookie" 는 지금은 고정 글자 (방식·출처가 늘면 선택 박스로). */
+  function authRow(d) {
+    const row = div('dc-row dc-auth has-handle');
+    const prefix = input(d.tokenPrefix, (v) => { d.tokenPrefix = v.trim(); });
+    prefix.classList.add('w-tokenprefix');
+    prefix.title = tr('Sent as "Authorization: <Prefix> <token>". Empty = the token only.');
+    const key = input(d.tokenKey, (v) => { d.tokenKey = v.trim(); key.classList.toggle('need', !d.tokenKey); });
+    key.classList.add('w-tokenkey');
+    key.classList.toggle('need', !d.tokenKey);   // 비어 있으면 헤더를 붙이지 않는다
+    key.placeholder = tr('Key');
+    key.title = tr('Cookie name that holds the token');
+    const path = input(d.tokenPath, (v) => { d.tokenPath = v.trim(); });
+    path.classList.add('w-tokenpath');
+    path.placeholder = tr('Path (optional)');
+    path.title = tr('When the cookie value is a JWT or JSON, use this inner field as the token (e.g. user.accessToken)');
+    row.append(span('dc-label', 'Bearer Token'), span('dc-label', 'Prefix'), prefix, span('dc-label', 'Token'), span('', 'Cookie'), key, path);
+    return freeze(row, d);
   }
 
   /** 접힘과 상관없이 항상 보이는 요약: 전체 (활성/비활성) — URI | Account. 활성 = 체크한 것 */
@@ -505,7 +530,13 @@
     use.title = tr('Active');
     row.classList.toggle('off', !use.checked);
     use.addEventListener('change', () => { a.enabled = use.checked; row.classList.toggle('off', !use.checked); setDirty(); renderEnv(); });
-    row.append(dragHandle(row, { kind: 'acc', d, a }), use, name, id, pw, lock, eye, tail);
+    // HTTP 인증용 = 인증 창(Basic 등)의 계정 목록에만 나온다 (로그인 칸 목록에서는 빠진다)
+    const http = document.createElement('button');
+    http.className = 'ghost small http-btn' + (a.http ? ' on' : '');
+    http.textContent = 'HTTP';
+    http.title = tr('For HTTP authentication (shown in the sign-in prompt instead of login fields)');
+    http.addEventListener('click', () => { a.http = !a.http; http.classList.toggle('on', a.http); setDirty(); });
+    row.append(dragHandle(row, { kind: 'acc', d, a }), use, name, id, pw, lock, eye, http, tail);
     bindDrop(row, (s) => s.kind === 'acc' && s.d === d && live(d) && 'move', (s, after) => {
       const i = d.accounts.indexOf(s.a);
       d.accounts.splice(i, 1);
@@ -783,7 +814,7 @@
   $('domainAddRun').addEventListener('click', () => {
     const src = $('domainSources').querySelector('input:checked')?._source;
     currentEnv().domains.push(src ? cloneDomain(src) : {
-      id: null, alias: '', ssl: true, useBase: true, sub: '', showInSidebar: true, accounts: [],
+      id: null, alias: '', ssl: true, useBase: true, sub: '', showInSidebar: true, swaggerAuth: false, tokenPrefix: 'Bearer', tokenKey: '', tokenPath: '', accounts: [],
       uris: [{ id: null, alias: '', path: '/', showInSidebar: true, params: [] }],   // 새 도메인은 / 하나로 시작
     });
     $('domainModal').hidden = true;
@@ -890,8 +921,8 @@
     for (const target of targets) {
       if (kind === 'acc') {
         const same = target.accounts.find((t) => t.id === item.id);
-        if (!same) { target.accounts.push({ name: item.name, id: item.id, pw: item.pw, enabled: item.enabled !== false }); added++; }
-        else if (overwrite) { same.name = item.name; same.pw = item.pw; replaced++; }
+        if (!same) { target.accounts.push({ name: item.name, id: item.id, pw: item.pw, enabled: item.enabled !== false, http: !!item.http }); added++; }
+        else if (overwrite) { same.name = item.name; same.pw = item.pw; same.http = !!item.http; replaced++; }
         else skipped++;
         continue;
       }

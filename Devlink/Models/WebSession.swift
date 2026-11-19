@@ -14,6 +14,8 @@ final class WebSession: NSObject {
     var onClose: (() -> Void)?
     /// 로그인 칸에 포커스 (칸의 viewport 좌표) → 계정 목록을 띄운다. nil 이면 숨긴다.
     var onLoginFocus: ((CGRect?) -> Void)?
+    /// HTTP 인증(Basic 등) 창에 보일 계정 목록: 호스트("host" 또는 "host:port") → 등록한 HTTP 인증용 계정
+    var onAuthChoices: ((String) -> [AuthChoice])?
     private var observations: [NSKeyValueObservation] = []
     /// 진행 중인 다운로드와 저장 파일 이름
     fileprivate var downloads: [ObjectIdentifier: (download: WKDownload, name: String)] = [:]
@@ -51,6 +53,68 @@ final class WebSession: NSObject {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: "devlink")
         }
     }
+
+    // MARK: Swagger Authorize → Authorization 헤더
+
+    /// host(소문자, 포트 포함) → {key(쿠키 이름), path, prefix}. 이 호스트 페이지가 같은 호스트로 보내는 fetch·XHR 에,
+    /// 요청이 Authorization 을 직접 넣지 않았다면 `Authorization: <prefix> <토큰>` 을 덧붙인다 (prefix 가 비면 토큰만).
+    /// 토큰은 요청할 때마다 읽어 항상 최신이다 (HttpOnly 쿠키는 읽을 수 없다). path 가 있으면 값(JSON 또는 JWT)의 안쪽 값을 쓴다.
+    /// 페이지를 열기 전에 불러야 한다.
+    func setSwaggerAuth(_ map: [String: [String: String]]) {
+        guard !map.isEmpty, let data = try? JSONSerialization.data(withJSONObject: map),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let source = Self.tokenScript.replacingOccurrences(of: "__CFG__", with: json)
+        webView.configuration.userContentController.addUserScript(
+            WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    }
+
+    private static let tokenScript = """
+    (function () {
+      var cfg = __CFG__[location.host.toLowerCase()];
+      if (!cfg) return;
+      function raw() {
+        var parts = document.cookie.split('; '), v = '';
+        for (var i = 0; i < parts.length; i++) if (parts[i].indexOf(cfg.key + '=') === 0) v = parts[i].slice(cfg.key.length + 1);
+        return v;
+      }
+      function inner(v) {
+        var o;
+        try { o = JSON.parse(v); } catch (e) {
+          try {
+            var b64 = v.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            o = JSON.parse(decodeURIComponent(escape(atob(b64))));
+          } catch (e2) { return ''; }
+        }
+        cfg.path.split('.').forEach(function (k) { o = o == null ? o : o[k]; });
+        return typeof o === 'string' ? o : '';
+      }
+      function token() { var v = raw(); return cfg.path && v ? inner(v) : v; }
+      function value(t) { return cfg.prefix ? cfg.prefix + ' ' + t : t; }
+      function same(u) { try { return new URL(u, location.href).host === location.host; } catch (e) { return false; } }
+      var f = window.fetch;
+      window.fetch = function (input, init) {
+        try {
+          var req = typeof input === 'string' || input instanceof URL ? null : input;
+          if (same(req ? req.url : String(input))) {
+            var h = new Headers((init && init.headers) || (req ? req.headers : undefined));
+            var t = token();
+            if (t && !h.has('Authorization')) { h.set('Authorization', value(t)); init = Object.assign({}, init, { headers: h }); }
+          }
+        } catch (e) {}
+        return f.call(this, input, init);
+      };
+      var open = XMLHttpRequest.prototype.open, set = XMLHttpRequest.prototype.setRequestHeader, send = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function (m, u) { this.__lhUrl = u; this.__lhAuth = false; return open.apply(this, arguments); };
+      XMLHttpRequest.prototype.setRequestHeader = function (k) { if (String(k).toLowerCase() === 'authorization') this.__lhAuth = true; return set.apply(this, arguments); };
+      XMLHttpRequest.prototype.send = function () {
+        try {
+          var t = token();
+          if (t && !this.__lhAuth && same(this.__lhUrl)) set.call(this, 'Authorization', value(t));
+        } catch (e) {}
+        return send.apply(this, arguments);
+      };
+    })();
+    """
 
     // MARK: Navigation
 
@@ -823,6 +887,63 @@ extension WebSession: WKNavigationDelegate {
         showRulerOverlay()   // 룰러 모드면 새 페이지에도 다시 띄운다
     }
 
+    /// HTTP 인증(Basic 등): 입력 창을 띄운다 (취소하면 인증 취소).
+    func webView(_ webView: WKWebView, respondTo challenge: URLAuthenticationChallenge) async
+        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        let space = challenge.protectionSpace
+        guard space.authenticationMethod == NSURLAuthenticationMethodHTTPBasic
+                || space.authenticationMethod == NSURLAuthenticationMethodHTTPDigest
+                || space.authenticationMethod == NSURLAuthenticationMethodNTLM else {
+            return (.performDefaultHandling, nil)   // 서버 인증서 검증 등은 기본대로
+        }
+        let defaultPort = space.protocol == "https" ? 443 : 80
+        let key = (space.port == 0 || space.port == defaultPort ? space.host : "\(space.host):\(space.port)").lowercased()
+        let choices = onAuthChoices?(key) ?? []
+        guard let (id, pw) = await promptCredential(host: space.host, failed: challenge.previousFailureCount > 0, choices: choices)
+        else { return (.cancelAuthenticationChallenge, nil) }
+        // 세션 동안 기억: 같은 서버의 CSS·JS 요청에 다시 묻지 않는다. 탭을 닫으면 사라진다 (디스크에 저장하지 않음).
+        return (.useCredential, URLCredential(user: id, password: pw, persistence: .forSession))
+    }
+
+    /// 인증 창 (이 탭 창에 시트로): 등록한 HTTP 인증용 계정을 고르거나(첫 계정이 기본), 직접 입력한다. 저장하지 않는다.
+    @MainActor
+    private func promptCredential(host: String, failed: Bool, choices: [AuthChoice]) async -> (String, String)? {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Sign in to \(host)")
+        if failed { alert.informativeText = String(localized: "The ID or password was incorrect.") }
+        alert.addButton(withTitle: String(localized: "Sign In"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        let idField = NSTextField(frame: NSRect(x: 0, y: 30, width: 260, height: 24))
+        idField.placeholderString = String(localized: "ID")
+        let pwField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        pwField.placeholderString = String(localized: "Password")
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: choices.isEmpty ? 54 : 88))
+        box.addSubview(idField); box.addSubview(pwField)
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 64, width: 260, height: 24), pullsDown: false)
+        let toggler = FieldToggler(fields: [idField, pwField], popup: popup)
+        if !choices.isEmpty {
+            popup.addItems(withTitles: choices.map(\.title))
+            popup.menu?.addItem(.separator())
+            popup.addItem(withTitle: String(localized: "Enter manually"))
+            popup.target = toggler
+            popup.action = #selector(FieldToggler.changed)
+            box.addSubview(popup)
+            toggler.changed()
+        }
+        alert.accessoryView = box
+        alert.window.initialFirstResponder = choices.isEmpty ? idField : popup
+        let response: NSApplication.ModalResponse
+        if let window = webView.window { response = await alert.beginSheetModal(for: window) }
+        else { response = alert.runModal() }
+        guard response == .alertFirstButtonReturn else { return nil }
+        if !choices.isEmpty, popup.indexOfSelectedItem < choices.count {
+            let c = choices[popup.indexOfSelectedItem]
+            guard let pw = await c.password() else { return nil }   // 잠근 계정 인증 취소 등
+            return (c.login, pw)
+        }
+        return (idField.stringValue, pwField.stringValue)
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         onAreaSelected?(nil)   // 페이지가 바뀌면 영역 선택 오버레이도 사라진다
         onLoginFocus?(nil)
@@ -948,5 +1069,26 @@ private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
     init(_ session: WebSession) { self.session = session }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         session?.receive(message.body)
+    }
+}
+
+
+
+/// 인증 창에 보일 계정 하나. password: 비밀번호를 돌려준다 (잠근 계정은 인증을 거치고, 취소하면 nil).
+struct AuthChoice {
+    let login: String
+    let title: String
+    let password: () async -> String?
+}
+
+/// 인증 창: 목록에서 계정을 고르면 입력 칸을 막고, "직접 입력" 을 고르면 연다.
+private final class FieldToggler: NSObject {
+    let fields: [NSTextField]
+    let popup: NSPopUpButton
+    init(fields: [NSTextField], popup: NSPopUpButton) { self.fields = fields; self.popup = popup }
+    @objc func changed() {
+        let manual = popup.indexOfSelectedItem == popup.numberOfItems - 1
+        fields.forEach { $0.isEnabled = manual }
+        if manual { fields.first?.window?.makeFirstResponder(fields.first) }
     }
 }

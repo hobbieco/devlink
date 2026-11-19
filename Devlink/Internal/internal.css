@@ -358,6 +358,9 @@ button.ghost.add { border-style: dashed; color: var(--text-dim); align-self: fle
 .dc-top { flex-wrap: nowrap; }
 .dc-top input { flex: none; }
 .dc-top .dc-origin { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 집계는 주소 미리보기와 함께 좁아진다 (글자는 … 으로 줄임). Delete 는 줄어들지 않아 밖으로 밀려나지 않는다 */
+.dc-top .dc-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.dc-top .dc-summary .dc-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dc-top button, .dc-top .dc-moves { flex: none; }
 .dc-checks { margin-top: 10px; gap: 20px; }
 .w-desc { width: 260px; }
@@ -432,18 +435,26 @@ button.ghost.danger:hover { background: #3a2422; }
 .settings .w-alias { width: 200px; flex: none; }
 .settings .uri-top .w-path { flex: 1 1 260px; width: auto; min-width: 160px; }
 .settings .dc-top .w-sub { flex: none; width: 300px; }   /* 이전 200px 의 1.5배 */
-.settings .dc-top .dc-origin { flex: 0 1 auto; }
+/* 좁아지면 주소 미리보기가 먼저 (축소 비율 1000 대 1), 0 이 된 뒤에야 집계가 줄기 시작한다 */
+.settings .dc-top .dc-origin { flex: 0 1000 auto; }
 .settings .w-key { width: 150px; }
 .settings .w-val { width: 200px; }
 .settings .w-desc { flex: 1 1 240px; width: auto; min-width: 160px; }
 .settings .param { flex: 1 1 100%; }
-.settings .w-accname { flex: 0 1 200px; width: auto; min-width: 80px; }
+.settings .w-accname { flex: none; width: 200px; }   /* 계정명은 고정, 좁아지면 ID·비밀번호만 줄어든다 */
 .settings .w-acc { flex: 0 1 280px; width: auto; min-width: 100px; }
 .settings .w-pw { flex: 0 1 260px; width: auto; min-width: 100px; }
 .settings input.masked:not(:placeholder-shown) { -webkit-text-security: disc; }
 .settings .x-btn.eye, .settings .x-btn.lock { display: grid; place-items: center; padding: 0; }
 .settings .lock svg { width: 18px; height: 18px; }
 .settings .lock.on { color: var(--accent); border-color: var(--accent); }
+.dc-auth { margin-top: 8px; gap: 10px; flex-wrap: nowrap; white-space: nowrap; }   /* 좁아져도 줄바꿈 없이 Path 만 줄어든다 */
+.settings .w-tokenprefix { width: 90px; flex: none; }
+.settings .w-tokenkey { width: 150px; flex: none; }
+.settings .w-tokenkey.need { border-color: #d9822b; }
+.settings .w-tokenpath { flex: 0 1 300px; width: 300px; min-width: 60px; }   /* Key 의 2배, 좁아지면 줄어든다 */
+.settings .http-btn { font-size: 11px; padding: 2px 6px; }
+.settings .http-btn.on { color: var(--accent); border-color: var(--accent); }
 .settings .eye svg { width: 18px; height: 18px; }
 @property --sweep { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes eye-sweep { to { --sweep: 360deg; } }
@@ -482,8 +493,9 @@ button.ghost.danger:hover { background: #3a2422; }
 /* 편집 서비스의 옵션 줄: 왼쪽 끝을 서비스 명 입력란에 맞춤 (핸들 16 + 간격 12) */
 .dc-checks.has-handle { padding-left: 28px; }
 
-/* 서비스 삭제 버튼은 윗줄 오른쪽 끝 */
-.dc-top > button { margin-left: auto; }
+/* 윗줄 오른쪽 끝: 집계 → Delete. 집계의 오른쪽 끝은 환경 줄의 Collapse All 오른쪽 끝과 맞는다
+   (Delete 114 + 카드 안쪽 여백·테두리 17 = Delete env 131, 두 줄의 간격 12 가 같다) */
+.dc-top .dc-summary { margin-left: auto; }
 
 /* 삭제 동작 버튼은 모두 빨강 (.settings 의 기본 버튼 스타일보다 우선) */
 .settings button.ghost.danger, .settings .x-btn.danger { color: #ff7b72; border: 1px solid #6e3a37; }

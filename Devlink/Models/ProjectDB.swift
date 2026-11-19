@@ -9,7 +9,7 @@ enum ProjectDB {
     /// 3: 계정 이름 칸
     /// 5: 파라미터 사용 여부(enabled)
     /// 6: 계정 사용 여부(enabled)
-    static let schemaVersion = 6
+    static let schemaVersion = 10
 
     static var fileURL: URL {
         URL.applicationSupportDirectory.appending(path: "Devlink/devlink.sqlite")
@@ -72,6 +72,36 @@ enum ProjectDB {
             if version < 6 {
                 try db.exec("ALTER TABLE accounts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
             }
+            if version < 7 {
+                try db.exec("ALTER TABLE accounts ADD COLUMN http INTEGER NOT NULL DEFAULT 0")
+            }
+            if version < 8 {
+                try db.exec("ALTER TABLE domains ADD COLUMN token_cookie TEXT NOT NULL DEFAULT ''")
+            }
+            if version < 9 {
+                // token_cookie ("이름" 또는 "이름:경로") → 인증 방식·출처·키·경로
+                try db.exec("""
+                    ALTER TABLE domains ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'session';
+                    ALTER TABLE domains ADD COLUMN token_source TEXT NOT NULL DEFAULT 'cookie';
+                    ALTER TABLE domains ADD COLUMN token_key TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE domains ADD COLUMN token_path TEXT NOT NULL DEFAULT '';
+                    UPDATE domains SET auth_mode = 'jwt-header',
+                      token_key = CASE WHEN instr(token_cookie, ':') > 0 THEN substr(token_cookie, 1, instr(token_cookie, ':') - 1) ELSE token_cookie END,
+                      token_path = CASE WHEN instr(token_cookie, ':') > 0 THEN substr(token_cookie, instr(token_cookie, ':') + 1) ELSE '' END
+                      WHERE token_cookie <> '';
+                    ALTER TABLE domains DROP COLUMN token_cookie;
+                    """)
+            }
+            if version < 10 {
+                // 인증 방식·출처 선택을 없애고 Swagger Authorize 체크 + 접두사로 (출처는 쿠키 고정)
+                try db.exec("""
+                    ALTER TABLE domains ADD COLUMN swagger_auth INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE domains ADD COLUMN token_prefix TEXT NOT NULL DEFAULT 'Bearer';
+                    UPDATE domains SET swagger_auth = 1 WHERE auth_mode = 'jwt-header';
+                    ALTER TABLE domains DROP COLUMN auth_mode;
+                    ALTER TABLE domains DROP COLUMN token_source;
+                    """)
+            }
             try db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)", [.text("\(schemaVersion)")])
         }
     }
@@ -90,15 +120,16 @@ enum ProjectDB {
                                                        params: params[id] ?? [], showInSidebar: r.bool(4)))
         }
         var accounts: [UUID: [Account]] = [:]
-        try db.query("SELECT domain_id, login_id, name, enabled FROM accounts ORDER BY domain_id, ord") { r in
-            accounts[r.uuid(0), default: []].append(Account(login: r.text(1), name: r.text(2), enabled: r.bool(3)))
+        try db.query("SELECT domain_id, login_id, name, enabled, http FROM accounts ORDER BY domain_id, ord") { r in
+            accounts[r.uuid(0), default: []].append(Account(login: r.text(1), name: r.text(2), enabled: r.bool(3), http: r.bool(4)))
         }
         var domains: [UUID: [EnvDomain]] = [:]
-        try db.query("SELECT id, env_id, alias, ssl, use_base, sub, show_in_sidebar FROM domains ORDER BY env_id, ord") { r in
+        try db.query("SELECT id, env_id, alias, ssl, use_base, sub, show_in_sidebar, swagger_auth, token_prefix, token_key, token_path FROM domains ORDER BY env_id, ord") { r in
             let id = r.uuid(0)
             domains[r.uuid(1), default: []].append(EnvDomain(
                 id: id, alias: r.text(2), ssl: r.bool(3), useBase: r.bool(4), sub: r.text(5), showInSidebar: r.bool(6),
-                uris: uris[id] ?? [], accounts: accounts[id] ?? []))
+                swaggerAuth: r.bool(7), tokenPrefix: r.text(8),
+                tokenKey: r.text(9), tokenPath: r.text(10), uris: uris[id] ?? [], accounts: accounts[id] ?? []))
         }
         var envs: [UUID: [ProjectEnv]] = [:]
         try db.query("SELECT id, project_id, name, palette FROM envs ORDER BY project_id, ord") { r in
@@ -136,10 +167,12 @@ enum ProjectDB {
                                [.text(e.id.uuidString), .text(p.id.uuidString), .int(eo), .text(e.name), .text(e.palette.rawValue)])
                     for (dord, d) in e.domains.enumerated() {
                         try db.run("""
-                            INSERT INTO domains (id, env_id, ord, alias, ssl, use_base, sub, show_in_sidebar)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO domains (id, env_id, ord, alias, ssl, use_base, sub, show_in_sidebar,
+                                                 swagger_auth, token_prefix, token_key, token_path)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """, [.text(d.id.uuidString), .text(e.id.uuidString), .int(dord), .text(d.alias),
-                                  .bool(d.ssl), .bool(d.useBase), .text(d.sub), .bool(d.showInSidebar)])
+                                  .bool(d.ssl), .bool(d.useBase), .text(d.sub), .bool(d.showInSidebar),
+                                  .bool(d.swaggerAuth), .text(d.tokenPrefix), .text(d.tokenKey), .text(d.tokenPath)])
                         for (uo, u) in d.uris.enumerated() {
                             try db.run("INSERT INTO uris (id, domain_id, ord, alias, path, show_in_sidebar) VALUES (?, ?, ?, ?, ?, ?)",
                                        [.text(u.id.uuidString), .text(d.id.uuidString), .int(uo), .text(u.alias), .text(u.path),
@@ -150,8 +183,8 @@ enum ProjectDB {
                             }
                         }
                         for (ao, a) in d.accounts.enumerated() {
-                            try db.run("INSERT INTO accounts (domain_id, ord, login_id, name, enabled) VALUES (?, ?, ?, ?, ?)",
-                                       [.text(d.id.uuidString), .int(ao), .text(a.login), .text(a.name), .bool(a.enabled)])
+                            try db.run("INSERT INTO accounts (domain_id, ord, login_id, name, enabled, http) VALUES (?, ?, ?, ?, ?, ?)",
+                                       [.text(d.id.uuidString), .int(ao), .text(a.login), .text(a.name), .bool(a.enabled), .bool(a.http)])
                         }
                     }
                 }

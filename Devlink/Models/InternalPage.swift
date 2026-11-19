@@ -195,9 +195,10 @@ final class InternalPageSession: NSObject, WKScriptMessageHandler, WKNavigationD
                      "ready": p.isReady(e),
                      "domains": e.domains.map { d -> [String: Any] in
                          ["id": d.id.uuidString, "alias": d.alias, "origin": p.origin(d) ?? "",
-                          "ssl": d.ssl, "useBase": d.useBase, "sub": d.sub, "showInSidebar": d.showInSidebar,
+                          "ssl": d.ssl, "useBase": d.useBase, "sub": d.sub, "showInSidebar": d.showInSidebar, "swaggerAuth": d.swaggerAuth, "tokenPrefix": d.tokenPrefix,
+                          "tokenKey": d.tokenKey, "tokenPath": d.tokenPath,
                           "accounts": d.accounts.map { a -> [String: Any] in
-                              var out: [String: Any] = ["id": a.login, "name": a.name, "enabled": a.enabled]
+                              var out: [String: Any] = ["id": a.login, "name": a.name, "enabled": a.enabled, "http": a.http]
                               if p.id == settingsID, PasswordStore.shared.isLocked(domain: d.id, account: a.login) {
                                   out["locked"] = true   // 값은 보내지 않고 저장돼 있는지만
                                   out["hasPw"] = PasswordStore.shared.has(domain: d.id, account: a.login)

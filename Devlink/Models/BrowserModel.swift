@@ -459,6 +459,19 @@ extension WindowState {
             guard let self, let tab, let rect else { AccountPicker.shared.hide(); return }
             self.showAccounts(for: tab, at: rect)
         }
+        // Swagger Authorize 를 켠 도메인은 그 호스트 페이지의 요청에 Authorization 헤더를 덧붙인다 (페이지를 열기 전에 설정)
+        if case .page(let pid, let eid, _) = tab.content, let (project, env) = env(pid, eid) {
+            var map: [String: [String: String]] = [:]
+            for d in env.domains where d.swaggerAuth && !d.tokenKey.isEmpty {
+                let host = project.host(d).lowercased()
+                if !host.isEmpty { map[host] = ["key": d.tokenKey, "path": d.tokenPath, "prefix": d.tokenPrefix] }
+            }
+            session.setSwaggerAuth(map)
+        }
+        session.onAuthChoices = { [weak self, weak tab] host in
+            guard let self, let tab else { return [] }
+            return self.authChoices(for: tab, host: host)
+        }
         session.onClose = { [weak self, weak tab] in
             guard let self, let tab, let pane = self.pane(containing: tab.id) else { return }
             pane.closeTab(tab.id)
@@ -473,7 +486,7 @@ extension WindowState {
               let key = tab.currentURL.flatMap(Self.hostKey),
               let domain = env.domains.first(where: { project.host($0).lowercased() == key }),
               let session = tab.session else { return }
-        let accounts = domain.accounts.filter { !$0.login.isEmpty && $0.enabled }
+        let accounts = domain.accounts.filter { !$0.login.isEmpty && $0.enabled && !$0.http }
         guard !accounts.isEmpty else { return }
         let items = accounts.map {
             AccountPicker.Item(id: $0.login, name: $0.name, hasPassword: PasswordStore.shared.has(domain: domain.id, account: $0.login),
@@ -486,6 +499,26 @@ extension WindowState {
                 Authenticator.authenticate(reason: String(localized: "Fill a saved login")) { if $0 { fill() } }
             } else { fill() }
         }
+    }
+
+    /// HTTP 인증 창에 보일 계정: 탭 환경에서 host 와 같은 도메인의 사용 중인 HTTP 인증용 계정 중 비밀번호가 저장된 것 (설정 순서).
+    /// 잠근 계정은 고른 뒤 인증해야 비밀번호를 쓴다.
+    func authChoices(for tab: BrowserTab, host: String) -> [AuthChoice] {
+        guard case .page(let pid, let eid, _) = tab.content, let (project, env) = env(pid, eid),
+              let domain = env.domains.first(where: { project.host($0).lowercased() == host }) else { return [] }
+        return domain.accounts
+            .filter { !$0.login.isEmpty && $0.enabled && $0.http && PasswordStore.shared.has(domain: domain.id, account: $0.login) }
+            .map { a in
+                AuthChoice(login: a.login, title: a.name.isEmpty ? a.login : "\(a.name) (\(a.login))") {
+                    if PasswordStore.shared.isLocked(domain: domain.id, account: a.login) {
+                        let ok = await withCheckedContinuation { c in
+                            Authenticator.authenticate(reason: String(localized: "Fill a saved login")) { c.resume(returning: $0) }
+                        }
+                        guard ok else { return nil }
+                    }
+                    return PasswordStore.shared.password(domain: domain.id, account: a.login)
+                }
+            }
     }
 
     /// 탭에서 파생된 탭 (페이지가 연 새 창, 링크 ⌘클릭): 연 탭과 같은 묶음·같은 저장소·같은 환경.

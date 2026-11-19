@@ -52,8 +52,12 @@ struct Account: Hashable, ExpressibleByStringLiteral {
     var name = ""
     /// 끄면 로그인 칸 자동 채우기 목록에서 빠진다 (설정에는 남는다)
     var enabled = true
+    /// HTTP 인증(Basic 등) 전용 계정: 인증 창의 계정 목록에만 나오고, 로그인 칸 목록에서는 빠진다.
+    var http = false
 
-    init(login: String, name: String = "", enabled: Bool = true) { self.login = login; self.name = name; self.enabled = enabled }
+    init(login: String, name: String = "", enabled: Bool = true, http: Bool = false) {
+        self.login = login; self.name = name; self.enabled = enabled; self.http = http
+    }
     init(stringLiteral value: String) { login = value }
 }
 
@@ -68,6 +72,12 @@ struct EnvDomain: Identifiable, Hashable {
     var useBase = true
     var sub = ""
     var showInSidebar = true
+    /// Swagger Authorize: 켜면 이 도메인 페이지(스웨거 등)의 요청에 `Authorization: <tokenPrefix> <토큰>` 을 덧붙인다.
+    /// 토큰은 쿠키(tokenKey)에서 읽고, tokenPath 가 있으면 값(JWT·JSON)의 안쪽 값 "a.b" 를 쓴다. 꺼도 값은 남긴다.
+    var swaggerAuth = false
+    var tokenPrefix = "Bearer"
+    var tokenKey = ""
+    var tokenPath = ""
     var uris: [EnvURI] = []
     var accounts: [Account] = []
 }
@@ -284,7 +294,8 @@ extension Project {
                 for a in list(dm, "accounts") {
                     let account = str(a, "id")
                     guard !account.isEmpty else { continue }
-                    accounts.append(Account(login: account, name: str(a, "name"), enabled: a["enabled"] as? Bool ?? true))
+                    accounts.append(Account(login: account, name: str(a, "name"), enabled: a["enabled"] as? Bool ?? true,
+                                       http: a["http"] as? Bool ?? false))
                     let key = PasswordStore.itemKey(domain: domainID, account: account)
                     if a["pw"] is NSNull { /* 잠근 채 그대로 */ } else { passwords[key] = a["pw"] as? String ?? "" }
                     locks[key] = a["locked"] as? Bool ?? false
@@ -292,6 +303,10 @@ extension Project {
                 return EnvDomain(id: domainID, alias: str(dm, "alias"), ssl: dm["ssl"] as? Bool ?? true,
                           useBase: dm["useBase"] as? Bool ?? true, sub: str(dm, "sub").lowercased(),
                           showInSidebar: dm["showInSidebar"] as? Bool ?? true,
+                          swaggerAuth: dm["swaggerAuth"] as? Bool ?? false,
+                          tokenPrefix: (dm["tokenPrefix"] as? String ?? "Bearer").trimmingCharacters(in: .whitespaces),
+                          tokenKey: str(dm, "tokenKey").trimmingCharacters(in: .whitespaces),
+                          tokenPath: str(dm, "tokenPath").trimmingCharacters(in: .whitespaces),
                           uris: list(dm, "uris").compactMap { u in
                               let path = str(u, "path")
                               guard !path.isEmpty else { return nil }

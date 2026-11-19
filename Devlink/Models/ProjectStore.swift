@@ -173,18 +173,28 @@ enum ProjectJSON {
         var useBase: Bool?
         var sub: String?
         var showInSidebar: Bool?
+        var swaggerAuth: Bool?    // 켠 것만 기록
+        var tokenPrefix: String?  // Bearer 가 아닐 때만 기록 (빈 값 = 접두사 없음)
+        var tokenKey: String?
+        var tokenPath: String?
         var uris: [URIDTO]?
         var accounts: [AccountDTO]?
 
         init(_ d: EnvDomain) {
             id = d.id; alias = d.alias; ssl = d.ssl; useBase = d.useBase; sub = d.sub
             showInSidebar = d.showInSidebar; uris = d.uris.map(URIDTO.init)
+            swaggerAuth = d.swaggerAuth ? true : nil
+            tokenPrefix = d.tokenPrefix == "Bearer" ? nil : d.tokenPrefix
+            tokenKey = d.tokenKey.isEmpty ? nil : d.tokenKey
+            tokenPath = d.tokenPath.isEmpty ? nil : d.tokenPath
             accounts = d.accounts.map(AccountDTO.init)
         }
 
         var domain: EnvDomain {
             EnvDomain(id: id ?? UUID(), alias: alias ?? "", ssl: ssl ?? true, useBase: useBase ?? true, sub: sub ?? "",
-                      showInSidebar: showInSidebar ?? true, uris: (uris ?? []).map(\.uri), accounts: (accounts ?? []).map(\.account))
+                      showInSidebar: showInSidebar ?? true, swaggerAuth: swaggerAuth ?? false, tokenPrefix: tokenPrefix ?? "Bearer",
+                      tokenKey: tokenKey ?? "", tokenPath: tokenPath ?? "",
+                      uris: (uris ?? []).map(\.uri), accounts: (accounts ?? []).map(\.account))
         }
     }
 
@@ -193,11 +203,12 @@ enum ProjectJSON {
         var login: String
         var name: String
         var enabled: Bool?   // 꺼진 것만 기록
+        var http: Bool?      // HTTP 인증용인 것만 기록
 
-        init(_ a: Account) { login = a.login; name = a.name; enabled = a.enabled ? nil : false }
-        var account: Account { Account(login: login, name: name, enabled: enabled ?? true) }
+        init(_ a: Account) { login = a.login; name = a.name; enabled = a.enabled ? nil : false; http = a.http ? true : nil }
+        var account: Account { Account(login: login, name: name, enabled: enabled ?? true, http: http ?? false) }
 
-        private enum CodingKeys: String, CodingKey { case login, name, enabled }
+        private enum CodingKeys: String, CodingKey { case login, name, enabled, http }
 
         init(from decoder: Decoder) throws {
             if let text = try? decoder.singleValueContainer().decode(String.self) { login = text; name = ""; return }
@@ -205,10 +216,11 @@ enum ProjectJSON {
             login = try c.decode(String.self, forKey: .login)
             name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
             enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
+            http = try c.decodeIfPresent(Bool.self, forKey: .http)
         }
 
         func encode(to encoder: Encoder) throws {
-            if name.isEmpty && enabled == nil {
+            if name.isEmpty && enabled == nil && http == nil {
                 var c = encoder.singleValueContainer()
                 try c.encode(login)
             } else {
@@ -216,6 +228,7 @@ enum ProjectJSON {
                 try c.encode(login, forKey: .login)
                 if !name.isEmpty { try c.encode(name, forKey: .name) }
                 try c.encodeIfPresent(enabled, forKey: .enabled)
+                try c.encodeIfPresent(http, forKey: .http)
             }
         }
     }
